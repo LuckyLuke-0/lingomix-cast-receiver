@@ -4,13 +4,21 @@
   const context = cast.framework.CastReceiverContext.getInstance();
   const playerManager = context.getPlayerManager();
   const video = document.getElementById('media');
+  const audio = document.getElementById('companion-audio');
   const subtitle = document.getElementById('subtitle');
   const status = document.getElementById('status');
 
   playerManager.setMediaElement(video);
 
+  const HARD_SYNC_DRIFT_SECONDS = 0.35;
+  const SOFT_SYNC_DRIFT_SECONDS = 0.12;
+  const SYNC_INTERVAL_MS = 500;
+
   let cues = [];
   let subtitleGeneration = 0;
+  let useCompanionAudio = false;
+  let syncTimer = null;
+  let activeCastMethod = 'DIRECT_SOURCE';
 
   function showStatus(message) {
     document.body.classList.remove('playing');
@@ -101,7 +109,7 @@
     root.setProperty('--subtitle-bottom', `${bottom}%`);
     root.setProperty('--subtitle-color', String(style.textColor || '#FFFFFF'));
     root.setProperty('--subtitle-font', fonts[fontKey] || fonts.sans_serif);
-    root.setProperty('--subtitle-weight', '700');
+    root.setProperty('--subtitle-weight', style.isBold === false ? '400' : '700');
     root.setProperty('--subtitle-background', opacity > 0 ? toRgba(style.backgroundColor || '#000000', opacity) : 'transparent');
     root.setProperty('--subtitle-padding-x', opacity > 0 ? '0.38em' : '0');
     root.setProperty('--subtitle-padding-y', opacity > 0 ? '0.12em' : '0');
@@ -138,25 +146,153 @@
     subtitle.style.display = active.length ? 'block' : 'none';
   }
 
+  function stopSyncTimer() {
+    if (syncTimer !== null) {
+      clearInterval(syncTimer);
+      syncTimer = null;
+    }
+  }
+
+  function resetCompanionAudio() {
+    stopSyncTimer();
+    useCompanionAudio = false;
+    try { audio.pause(); } catch (_) {}
+    audio.removeAttribute('src');
+    audio.load();
+    video.muted = false;
+  }
+
+  function safeSetAudioTime(target) {
+    if (!useCompanionAudio || !Number.isFinite(target) || audio.readyState < 1) return;
+    const duration = Number.isFinite(audio.duration) ? audio.duration : Number.POSITIVE_INFINITY;
+    const clamped = Math.max(0, Math.min(target, duration));
+    try { audio.currentTime = clamped; } catch (error) { console.warn('Trevuxa audio seek failed', error); }
+  }
+
+  function synchronizeAudio(force = false) {
+    if (!useCompanionAudio || audio.readyState < 1 || video.readyState < 1) return;
+    const drift = audio.currentTime - video.currentTime;
+    if (force || Math.abs(drift) > HARD_SYNC_DRIFT_SECONDS) {
+      safeSetAudioTime(video.currentTime);
+      audio.playbackRate = video.playbackRate || 1;
+      return;
+    }
+    if (Math.abs(drift) > SOFT_SYNC_DRIFT_SECONDS) {
+      const correction = drift > 0 ? -0.02 : 0.02;
+      audio.playbackRate = Math.max(0.5, Math.min(2, (video.playbackRate || 1) + correction));
+    } else {
+      audio.playbackRate = video.playbackRate || 1;
+    }
+  }
+
+  function startSyncTimer() {
+    stopSyncTimer();
+    syncTimer = setInterval(() => synchronizeAudio(false), SYNC_INTERVAL_MS);
+  }
+
+  async function playCompanionAudio() {
+    if (!useCompanionAudio) return;
+    synchronizeAudio(true);
+    try {
+      await audio.play();
+      startSyncTimer();
+    } catch (error) {
+      console.error('Trevuxa companion audio playback failed', error);
+      showStatus('Trevuxa: gekozen audio kon niet worden gestart');
+    }
+  }
+
+  function configureCompanionAudio(nextAudioUrl, videoUrl) {
+    resetCompanionAudio();
+    const chosen = String(nextAudioUrl || '').trim();
+    const picture = String(videoUrl || '').trim();
+    if (!chosen || chosen === picture) return;
+
+    useCompanionAudio = true;
+    video.muted = true;
+    audio.preload = 'auto';
+    audio.src = chosen;
+    audio.load();
+  }
+
   playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, request => {
     const media = request && request.media ? request.media : {};
     const custom = media.customData || {};
+    activeCastMethod = String(custom.castMethod || 'DIRECT_SOURCE');
     media.contentType = 'video/mp4';
+
+    if (custom.videoUrl) {
+      media.contentId = custom.videoUrl;
+      media.contentUrl = custom.videoUrl;
+    }
+
     loadSubtitles(custom.subtitleUrl || '', custom.subtitleStyle || {});
-    showStatus('Trevuxa: video laden…');
+    configureCompanionAudio(custom.audioUrl || '', custom.videoUrl || media.contentUrl || media.contentId || '');
+    showStatus(useCompanionAudio
+      ? 'Trevuxa: beeld en gekozen audio laden…'
+      : 'Trevuxa: video laden…');
     return request;
   });
 
-  video.addEventListener('playing', hideStatus);
+  video.addEventListener('loadedmetadata', () => {
+    if (useCompanionAudio) synchronizeAudio(true);
+  });
   video.addEventListener('timeupdate', renderSubtitle);
-  video.addEventListener('seeking', renderSubtitle);
-  video.addEventListener('seeked', renderSubtitle);
+  video.addEventListener('seeking', () => {
+    renderSubtitle();
+    if (useCompanionAudio) {
+      audio.pause();
+      synchronizeAudio(true);
+    }
+  });
+  video.addEventListener('seeked', () => {
+    renderSubtitle();
+    if (useCompanionAudio) {
+      synchronizeAudio(true);
+      if (!video.paused && !video.ended) playCompanionAudio();
+    }
+  });
+  video.addEventListener('playing', () => {
+    hideStatus();
+    renderSubtitle();
+    if (useCompanionAudio) playCompanionAudio();
+  });
+  video.addEventListener('play', () => {
+    if (useCompanionAudio) playCompanionAudio();
+  });
+  video.addEventListener('pause', () => {
+    stopSyncTimer();
+    if (useCompanionAudio) audio.pause();
+  });
+  video.addEventListener('ratechange', () => {
+    if (useCompanionAudio) audio.playbackRate = video.playbackRate || 1;
+  });
+  video.addEventListener('ended', () => {
+    stopSyncTimer();
+    if (useCompanionAudio) audio.pause();
+  });
   video.addEventListener('error', () => {
     const code = video.error ? video.error.code : 'onbekend';
-    showStatus(`Trevuxa: video kon niet worden afgespeeld (fout ${code})`);
+    const message = video.error && video.error.message ? ` – ${video.error.message}` : '';
+    showStatus(`Trevuxa: videofout ${code}${message} [${activeCastMethod}]`);
   });
 
-  context.addEventListener(cast.framework.system.EventType.SHUTDOWN, clearSubtitles);
+  audio.addEventListener('loadedmetadata', () => {
+    if (!useCompanionAudio) return;
+    synchronizeAudio(true);
+    if (!video.paused && !video.ended) playCompanionAudio();
+  });
+  audio.addEventListener('error', () => {
+    if (!useCompanionAudio) return;
+    const code = audio.error ? audio.error.code : 'onbekend';
+    const message = audio.error && audio.error.message ? ` – ${audio.error.message}` : '';
+    showStatus(`Trevuxa: audiofout ${code}${message}`);
+  });
+
+  context.addEventListener(cast.framework.system.EventType.SHUTDOWN, () => {
+    resetCompanionAudio();
+    clearSubtitles();
+  });
 
   const options = new cast.framework.CastReceiverOptions();
   options.disableIdleTimeout = false;
