@@ -57,7 +57,7 @@ test('direct and prepared routes use one media pipeline', function () {
   assert.equal(prepared.useCompanionAudio, false);
 });
 
-test('only the explicit receiver route enables distinct companion audio', function () {
+test('the explicit receiver route enables distinct companion audio', function () {
   var route = core.resolveLoadRoute(loadRequest({
     videoUrl: 'https://cdn.example/picture.mp4',
     audioUrl: 'https://cdn.example/audio.mp4',
@@ -68,6 +68,43 @@ test('only the explicit receiver route enables distinct companion audio', functi
   assert.equal(route.useCompanionAudio, true);
   assert.equal(route.singlePipeline, false);
   assert.equal(route.audioUrl, 'https://cdn.example/audio.mp4');
+});
+
+test('single-pipeline routes never enable companion audio', function () {
+  var direct = core.resolveLoadRoute(loadRequest({
+    videoUrl: 'https://cdn.example/picture.mp4',
+    audioUrl: 'https://cdn.example/audio.mp4',
+    castMethod: 'DIRECT_SOURCE',
+    singlePipeline: false
+  }));
+  var prepared = core.resolveLoadRoute(loadRequest({
+    videoUrl: 'http://192.0.2.1:1234/token/video.mp4',
+    audioUrl: 'https://cdn.example/audio.mp4',
+    castMethod: 'PHONE_REMUX',
+    preparedMedia: true
+  }));
+  var sameSource = core.resolveLoadRoute(loadRequest({
+    videoUrl: 'https://cdn.example/video.mp4',
+    audioUrl: 'https://cdn.example/video.mp4',
+    castMethod: 'RECEIVER_SEPARATE_TRACKS',
+    singlePipeline: false
+  }));
+
+  assert.equal(direct.useCompanionAudio, false);
+  assert.equal(prepared.useCompanionAudio, false);
+  assert.equal(sameSource.useCompanionAudio, false);
+});
+
+test('automatic mode keeps compatibility with senders that provide distinct tracks', function () {
+  var route = core.resolveLoadRoute(loadRequest({
+    videoUrl: 'https://cdn.example/picture.mp4',
+    audioUrl: 'https://cdn.example/audio.mp4',
+    castMethod: 'AUTOMATIC',
+    singlePipeline: false
+  }));
+
+  assert.equal(route.castMethod, 'AUTOMATIC');
+  assert.equal(route.useCompanionAudio, true);
 });
 
 test('legacy sender data without a method remains supported', function () {

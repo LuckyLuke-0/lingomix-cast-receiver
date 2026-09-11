@@ -42,3 +42,35 @@ test('subtitle styling has non-variable fallbacks for old Chromecast browsers', 
   assert.match(receiver, /subtitle\.style\.fontSize\s*=/);
   assert.match(receiver, /subtitle\.style\.textShadow\s*=/);
 });
+
+test('production page cache-busts current assets and excludes legacy pipelines', function () {
+  var html = fs.readFileSync(path.join(projectRoot, 'index.html'), 'utf8');
+
+  assert.match(html, /styles\.css\?v=__ASSET_VERSION__/);
+  assert.match(html, /receiver-core\.js\?v=__ASSET_VERSION__/);
+  assert.match(html, /receiver-trevuxa\.js\?v=__ASSET_VERSION__/);
+  assert.doesNotMatch(html, /receiver-v(?:17|21)\.js|mp4box|receiver\.js[?"']/);
+});
+
+test('Pages deploy is main-only and publishes an explicit production allowlist', function () {
+  var workflow = fs.readFileSync(
+    path.join(projectRoot, '.github', 'workflows', 'pages.yml'),
+    'utf8'
+  );
+
+  assert.match(workflow, /github\.ref == 'refs\/heads\/main'/);
+  assert.match(workflow, /cp receiver-core\.js receiver-trevuxa\.js styles\.css privacy-policy\.html terms\.html _site\//);
+  assert.doesNotMatch(workflow, /cp\s+(?:-r|-R|--recursive)\s+\.\s+_site/);
+  assert.doesNotMatch(workflow, /vendor-mp4box/);
+});
+
+test('privacy policy is bilingual and discloses mandatory Cast SDK data handling', function () {
+  var policy = fs.readFileSync(path.join(projectRoot, 'privacy-policy.html'), 'utf8');
+
+  assert.match(policy, /id="nederlands" lang="nl"/);
+  assert.match(policy, /id="english" lang="en"/);
+  assert.match(policy, /Google Cast Sender SDK/);
+  assert.match(policy, /developers\.google\.com\/cast\/docs\/android_sender\/data_disclosure/);
+  assert.match(policy, /GitHub Pages/);
+  assert.doesNotMatch(policy, /Notification permission, when requested/);
+});

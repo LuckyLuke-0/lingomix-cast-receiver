@@ -10,6 +10,7 @@
   var status = document.getElementById('status');
   var SYNC_INTERVAL_MS = 500;
   var AUDIO_END_TOLERANCE_SECONDS = 1.5;
+  var AUDIO_BUFFER_TIMEOUT_MS = 15000;
 
   var cues = [];
   var subtitleGeneration = 0;
@@ -19,6 +20,12 @@
   var playAttemptToken = 0;
   var companionPlayPending = false;
   var syncTimer = null;
+  var companionBufferTimer = null;
+  var companionBuffering = false;
+  var companionBufferReady = false;
+  var resumeVideoAfterCompanionBuffer = false;
+  var internalBufferPausePending = false;
+  var videoResumeToken = 0;
   var videoIsPlaying = false;
   var activeRoute = null;
   var activeCastMethod = 'DIRECT_SOURCE';
@@ -179,6 +186,22 @@
     }
   }
 
+  function stopCompanionBufferTimer() {
+    if (companionBufferTimer !== null) {
+      clearTimeout(companionBufferTimer);
+      companionBufferTimer = null;
+    }
+  }
+
+  function clearCompanionBuffering() {
+    stopCompanionBufferTimer();
+    videoResumeToken += 1;
+    companionBuffering = false;
+    companionBufferReady = false;
+    resumeVideoAfterCompanionBuffer = false;
+    internalBufferPausePending = false;
+  }
+
   function pauseCompanionAudio() {
     playAttemptToken += 1;
     companionPlayPending = false;
@@ -192,6 +215,7 @@
 
   function resetCompanionAudio() {
     companionGeneration += 1;
+    clearCompanionBuffering();
     pauseCompanionAudio();
     useCompanionAudio = false;
     audio.removeAttribute('src');
@@ -250,7 +274,50 @@
     }
   }
 
+  function requestVideoPause() {
+    try {
+      playerManager.pause();
+      return true;
+    } catch (pauseError) {
+      try {
+        video.pause();
+        return true;
+      } catch (fallbackError) {
+        console.warn('Trevuxa kon video niet pauzeren', fallbackError);
+        return false;
+      }
+    }
+  }
+
+  function requestVideoPlay() {
+    var playResult;
+    var resumeToken = videoResumeToken + 1;
+    videoResumeToken = resumeToken;
+
+    function failed(error) {
+      if (resumeToken !== videoResumeToken) {
+        return;
+      }
+      pauseVideoAfterAudioFailure('Trevuxa kon video na audiobuffering niet hervatten', error);
+    }
+
+    try {
+      playResult = playerManager.play();
+    } catch (playError) {
+      try {
+        playResult = video.play();
+      } catch (fallbackError) {
+        failed(fallbackError);
+        return;
+      }
+    }
+    if (playResult && typeof playResult.then === 'function') {
+      playResult.then(null, failed);
+    }
+  }
+
   function pauseVideoAfterAudioFailure(message, error) {
+    clearCompanionBuffering();
     videoIsPlaying = false;
     pauseCompanionAudio();
     if (error) {
@@ -258,19 +325,79 @@
     } else {
       console.error(message);
     }
-    try {
-      playerManager.pause();
-    } catch (pauseError) {
-      try {
-        video.pause();
-      } catch (ignored) {
-        console.warn('Trevuxa kon video na een audiofout niet pauzeren', ignored);
-      }
-    }
+    requestVideoPause();
     showStatus(uiText(
       'Trevuxa: gekozen audio kon niet worden afgespeeld',
       'Trevuxa: selected audio could not be played'
     ));
+  }
+
+  function tryResumeAfterCompanionBuffering() {
+    var shouldResume;
+    if (!companionBuffering || !companionBufferReady || internalBufferPausePending) {
+      return;
+    }
+    shouldResume = resumeVideoAfterCompanionBuffer && useCompanionAudio && !video.ended;
+    clearCompanionBuffering();
+    if (!shouldResume) {
+      return;
+    }
+    synchronizeAudio(true);
+    requestVideoPlay();
+  }
+
+  function pauseVideoForCompanionBuffering() {
+    var sourceGeneration;
+    if (!useCompanionAudio || !videoIsPlaying || companionBuffering) {
+      return;
+    }
+
+    companionBuffering = true;
+    companionBufferReady = false;
+    resumeVideoAfterCompanionBuffer = true;
+    internalBufferPausePending = true;
+    sourceGeneration = companionGeneration;
+    videoIsPlaying = false;
+    pauseCompanionAudio();
+    showStatus(uiText(
+      'Trevuxa: gekozen audio buffert…',
+      'Trevuxa: buffering selected audio…'
+    ));
+    companionBufferTimer = setTimeout(function () {
+      companionBufferTimer = null;
+      if (sourceGeneration === companionGeneration && companionBuffering && useCompanionAudio) {
+        pauseVideoAfterAudioFailure('Trevuxa companion audio buffering timed out');
+      }
+    }, AUDIO_BUFFER_TIMEOUT_MS);
+    if (!requestVideoPause()) {
+      pauseVideoAfterAudioFailure('Trevuxa kon video tijdens audiobuffering niet pauzeren');
+    }
+  }
+
+  function keepVideoPausedWhileCompanionBuffers() {
+    if (!useCompanionAudio || !companionBuffering) {
+      return false;
+    }
+    resumeVideoAfterCompanionBuffer = true;
+    internalBufferPausePending = true;
+    videoIsPlaying = false;
+    pauseCompanionAudio();
+    showStatus(uiText(
+      'Trevuxa: gekozen audio buffert…',
+      'Trevuxa: buffering selected audio…'
+    ));
+    if (!requestVideoPause()) {
+      pauseVideoAfterAudioFailure('Trevuxa kon video tijdens audiobuffering niet pauzeren');
+    }
+    return true;
+  }
+
+  function markCompanionBufferReady() {
+    if (!useCompanionAudio || !companionBuffering) {
+      return;
+    }
+    companionBufferReady = true;
+    tryResumeAfterCompanionBuffering();
   }
 
   function playCompanionAudio() {
@@ -341,6 +468,17 @@
     }
   }
 
+  function resetPlaybackState(showReadyStatus) {
+    activeRoute = null;
+    activeCastMethod = 'DIRECT_SOURCE';
+    videoIsPlaying = false;
+    resetCompanionAudio();
+    clearSubtitles();
+    if (showReadyStatus) {
+      showStatus(uiText('Trevuxa: klaar om te casten', 'Trevuxa: ready to cast'));
+    }
+  }
+
   function applyLoadRequest(request) {
     var route = core.resolveLoadRoute(request);
     var media = route.media;
@@ -349,10 +487,7 @@
     activeAppLanguageCode = route.appLanguageCode;
     document.documentElement.lang = activeAppLanguageCode;
     if (!route.hasMedia || !route.videoUrl) {
-      activeRoute = null;
-      activeCastMethod = 'DIRECT_SOURCE';
-      resetCompanionAudio();
-      clearSubtitles();
+      resetPlaybackState(false);
       showStatus(uiText('Trevuxa: ongeldige video-opdracht', 'Trevuxa: invalid video request'));
       return null;
     }
@@ -374,10 +509,14 @@
   }
 
   function createInvalidLoadError() {
+    var errorTypes = cast.framework.messages.ErrorType;
+    var errorReasons = cast.framework.messages.ErrorReason;
     var error = new cast.framework.messages.ErrorData(
-      cast.framework.messages.ErrorType.LOAD_CANCELLED
+      errorTypes.LOAD_FAILED || errorTypes.LOAD_CANCELLED
     );
-    error.reason = cast.framework.messages.ErrorReason.INVALID_PARAM;
+    error.reason = errorReasons.INVALID_PARAMS ||
+      errorReasons.INVALID_PARAM ||
+      errorReasons.INVALID_REQUEST;
     return error;
   }
 
@@ -396,16 +535,25 @@
   }
 
   registerOptionalInterceptor('STOP', function (request) {
+    resetPlaybackState(true);
+    return request;
+  });
+
+  registerOptionalInterceptor('PAUSE', function (request) {
+    clearCompanionBuffering();
     videoIsPlaying = false;
     pauseCompanionAudio();
     return request;
   });
 
-  registerOptionalInterceptor('SESSION_STATE', function (sessionState) {
+  registerOptionalInterceptor('SESSION_STATE', function (response) {
+    var sessionState = response && response.sessionState
+      ? response.sessionState
+      : response;
     if (activeRoute) {
-      return core.addRouteToSessionState(sessionState, activeRoute);
+      core.addRouteToSessionState(sessionState, activeRoute);
     }
-    return sessionState;
+    return response;
   });
 
   registerOptionalInterceptor('RESUME_SESSION', function (request) {
@@ -419,6 +567,7 @@
 
   video.addEventListener('loadstart', function () {
     videoIsPlaying = false;
+    clearCompanionBuffering();
     pauseCompanionAudio();
   });
   video.addEventListener('loadedmetadata', function () {
@@ -431,6 +580,7 @@
     videoIsPlaying = false;
     renderSubtitle();
     if (useCompanionAudio) {
+      clearCompanionBuffering();
       pauseCompanionAudio();
       synchronizeAudio(true);
     }
@@ -447,9 +597,13 @@
   });
   video.addEventListener('waiting', function () {
     videoIsPlaying = false;
+    clearCompanionBuffering();
     pauseCompanionAudio();
   });
   video.addEventListener('playing', function () {
+    if (keepVideoPausedWhileCompanionBuffers()) {
+      return;
+    }
     videoIsPlaying = true;
     hideStatus();
     renderSubtitle();
@@ -458,6 +612,12 @@
   video.addEventListener('pause', function () {
     videoIsPlaying = false;
     pauseCompanionAudio();
+    if (companionBuffering && internalBufferPausePending) {
+      internalBufferPausePending = false;
+      tryResumeAfterCompanionBuffering();
+      return;
+    }
+    clearCompanionBuffering();
   });
   video.addEventListener('ratechange', function () {
     if (useCompanionAudio) {
@@ -466,6 +626,7 @@
   });
   video.addEventListener('ended', function () {
     videoIsPlaying = false;
+    clearCompanionBuffering();
     pauseCompanionAudio();
     renderSubtitle();
   });
@@ -473,6 +634,7 @@
     var code = video.error ? video.error.code : 'onbekend';
     var message = video.error && video.error.message ? ' – ' + video.error.message : '';
     videoIsPlaying = false;
+    clearCompanionBuffering();
     pauseCompanionAudio();
     showStatus(uiText('Trevuxa: videofout ', 'Trevuxa: video error ') +
       code + message + ' [' + activeCastMethod + ']');
@@ -494,13 +656,17 @@
     }
   });
   audio.addEventListener('waiting', function () {
-    if (useCompanionAudio) {
-      stopSyncTimer();
-    }
+    pauseVideoForCompanionBuffering();
   });
+  audio.addEventListener('canplay', markCompanionBufferReady);
+  audio.addEventListener('canplaythrough', markCompanionBufferReady);
   audio.addEventListener('ended', function () {
     var videoSecondsLeft = video.duration - video.currentTime;
     stopSyncTimer();
+    if (useCompanionAudio && companionBuffering) {
+      pauseVideoAfterAudioFailure('Trevuxa companion audio ended while buffering');
+      return;
+    }
     if (useCompanionAudio && videoIsPlaying &&
         (!isFinite(videoSecondsLeft) || videoSecondsLeft > AUDIO_END_TOLERANCE_SECONDS)) {
       pauseVideoAfterAudioFailure('Trevuxa companion audio ended before video');
@@ -518,10 +684,7 @@
   });
 
   context.addEventListener(cast.framework.system.EventType.SHUTDOWN, function () {
-    activeRoute = null;
-    videoIsPlaying = false;
-    resetCompanionAudio();
-    clearSubtitles();
+    resetPlaybackState(false);
   });
 
   var options = new cast.framework.CastReceiverOptions();
