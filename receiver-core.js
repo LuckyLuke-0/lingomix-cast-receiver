@@ -222,6 +222,7 @@
       'singlePipeline',
       'preparedMedia',
       'trevuxaSignature',
+      'trevuxaContentSignature',
       'appLanguageCode'
     ];
     var index;
@@ -297,6 +298,7 @@
       subtitleStyle: isObject(custom.subtitleStyle) ? custom.subtitleStyle : {},
       castMethod: castMethod,
       trevuxaSignature: trimmedString(custom.trevuxaSignature),
+      trevuxaContentSignature: trimmedString(custom.trevuxaContentSignature),
       appLanguageCode: trimmedString(custom.appLanguageCode).toLowerCase() === 'en' ? 'en' : 'nl',
       useCompanionAudio: useCompanionAudio,
       singlePipeline: !useCompanionAudio,
@@ -317,6 +319,7 @@
       singlePipeline: route.useCompanionAudio !== true,
       preparedMedia: route.preparedMedia === true,
       trevuxaSignature: trimmedString(route.trevuxaSignature),
+      trevuxaContentSignature: trimmedString(route.trevuxaContentSignature),
       appLanguageCode: route.appLanguageCode === 'en' ? 'en' : 'nl'
     };
   }

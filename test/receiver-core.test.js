@@ -40,7 +40,8 @@ test('direct and prepared routes use one media pipeline', function () {
     subtitleUrl: 'https://cdn.example/subtitles.vtt',
     castMethod: 'DIRECT_SOURCE',
     singlePipeline: true,
-    trevuxaSignature: 'direct-signature'
+    trevuxaSignature: 'direct-signature',
+    trevuxaContentSignature: 'direct-content'
   }));
   var prepared = core.resolveLoadRoute(loadRequest({
     videoUrl: 'http://192.0.2.1:1234/token/video.mp4',
@@ -53,6 +54,7 @@ test('direct and prepared routes use one media pipeline', function () {
   assert.equal(direct.videoUrl, 'https://cdn.example/video.mp4');
   assert.equal(direct.useCompanionAudio, false);
   assert.equal(direct.trevuxaSignature, 'direct-signature');
+  assert.equal(direct.trevuxaContentSignature, 'direct-content');
   assert.equal(prepared.videoUrl, 'http://192.0.2.1:1234/token/video.mp4');
   assert.equal(prepared.useCompanionAudio, false);
 });
@@ -131,6 +133,7 @@ test('session persistence retains the complete route and sender signature', func
     castMethod: 'RECEIVER_SEPARATE_TRACKS',
     singlePipeline: false,
     trevuxaSignature: 'stable-signature',
+    trevuxaContentSignature: 'stable-content',
     appLanguageCode: 'en'
   }));
   var state = { loadRequestData: { customData: { keep: 'value' } } };
@@ -140,6 +143,10 @@ test('session persistence retains the complete route and sender signature', func
   assert.equal(
     state.loadRequestData.customData.trevuxaReceiver.trevuxaSignature,
     'stable-signature'
+  );
+  assert.equal(
+    state.loadRequestData.customData.trevuxaReceiver.trevuxaContentSignature,
+    'stable-content'
   );
 
   var restored = core.resolveLoadRoute({

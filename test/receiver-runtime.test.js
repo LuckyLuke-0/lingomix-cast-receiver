@@ -288,7 +288,8 @@ test('SESSION_STATE persists the active route inside the CAF response wrapper', 
   var runtime = createRuntime();
   loadSeparate(runtime, {
     subtitleUrl: 'https://cdn.example/subtitles.vtt',
-    trevuxaSignature: 'runtime-signature'
+    trevuxaSignature: 'runtime-signature',
+    trevuxaContentSignature: 'runtime-content'
   });
   var response = {
     sessionState: {
@@ -301,6 +302,10 @@ test('SESSION_STATE persists the active route inside the CAF response wrapper', 
   assert.equal(
     response.sessionState.loadRequestData.customData.trevuxaReceiver.trevuxaSignature,
     'runtime-signature'
+  );
+  assert.equal(
+    response.sessionState.loadRequestData.customData.trevuxaReceiver.trevuxaContentSignature,
+    'runtime-content'
   );
   assert.equal(
     response.sessionState.loadRequestData.customData.trevuxaReceiver.audioUrl,
