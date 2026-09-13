@@ -482,6 +482,9 @@
   function applyLoadRequest(request) {
     var route = core.resolveLoadRoute(request);
     var media = route.media;
+    var persisted;
+    var customData;
+    var key;
 
     videoIsPlaying = false;
     activeAppLanguageCode = route.appLanguageCode;
@@ -499,6 +502,17 @@
     if (route.customVideoUrl || !media.contentId) {
       media.contentId = route.videoUrl;
     }
+    // CAF restores route data on LoadRequestData, but senders read MediaInfo.customData.
+    // Echo the resolved identity and prepared flag so controls/deduplication also survive restore.
+    persisted = core.persistedRouteData(route);
+    customData = media.customData && typeof media.customData === 'object' &&
+      !Array.isArray(media.customData) ? media.customData : {};
+    for (key in persisted) {
+      if (Object.prototype.hasOwnProperty.call(persisted, key)) {
+        customData[key] = persisted[key];
+      }
+    }
+    media.customData = customData;
 
     loadSubtitles(route.subtitleUrl, route.subtitleStyle);
     configureCompanionAudio(route);

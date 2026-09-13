@@ -284,6 +284,31 @@ test('invalid LOAD returns the documented CAF failure and reason', function () {
   assert.equal(runtime.video.muted, false);
 });
 
+test('restored LOAD echoes stable identity and prepared ownership to sender MediaInfo', function () {
+  var runtime = createRuntime();
+  var request = {
+    media: { contentId: 'https://cdn.example/fallback.mp4', customData: { keep: 'yes' } },
+    customData: {
+      trevuxaReceiver: {
+        videoUrl: 'http://192.0.2.1:1234/token/video.mp4',
+        castMethod: 'PHONE_REMUX',
+        singlePipeline: true,
+        preparedMedia: true,
+        trevuxaSignature: 'restored-signature',
+        trevuxaContentSignature: 'restored-content',
+        appLanguageCode: 'en'
+      }
+    }
+  };
+  assert.equal(runtime.interceptors.LOAD(request), request);
+  assert.equal(request.media.customData.keep, 'yes');
+  assert.equal(request.media.customData.trevuxaSignature, 'restored-signature');
+  assert.equal(request.media.customData.trevuxaContentSignature, 'restored-content');
+  assert.equal(request.media.customData.preparedMedia, true);
+  assert.equal(runtime.audio.src, '');
+  assert.equal(runtime.video.muted, false);
+});
+
 test('SESSION_STATE persists the active route inside the CAF response wrapper', function () {
   var runtime = createRuntime();
   loadSeparate(runtime, {

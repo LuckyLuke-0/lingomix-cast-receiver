@@ -74,3 +74,12 @@ test('privacy policy is bilingual and discloses mandatory Cast SDK data handling
   assert.match(policy, /GitHub Pages/);
   assert.doesNotMatch(policy, /Notification permission, when requested/);
 });
+
+test('terms provide matching Dutch and English sections without a script dependency', function () {
+  var terms = fs.readFileSync(path.join(projectRoot, 'terms.html'), 'utf8');
+  assert.match(terms, /id="nederlands" lang="nl"/);
+  assert.match(terms, /id="english" lang="en"/);
+  assert.match(terms, /privacy-policy\.html#nederlands/);
+  assert.match(terms, /privacy-policy\.html#english/);
+  assert.doesNotMatch(terms, /<script/);
+});
