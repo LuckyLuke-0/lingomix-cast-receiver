@@ -3,6 +3,7 @@ name: Deploy Cast Receiver to GitHub Pages
 on:
   push:
     branches: [main, feature/direct-cast-modes]
+    tags: [staging-*]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -11,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: pages-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: pages
   cancel-in-progress: false
 
 jobs:
@@ -33,7 +34,10 @@ jobs:
           node --test test/*.test.js
 
   deploy:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/tags/staging-'))
     needs: test
     permissions:
       contents: read
@@ -44,17 +48,44 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout candidate
         uses: actions/checkout@v7
+        with:
+          path: candidate
+      - name: Checkout unchanged production baseline
+        if: startsWith(github.ref, 'refs/tags/staging-')
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          path: production
+          persist-credentials: false
       - name: Configure Pages
         uses: actions/configure-pages@v6
         with:
           enablement: true
-      - name: Stage only production receiver files
+      - name: Stage production receiver
+        if: github.ref == 'refs/heads/main'
         run: |
           mkdir -p _site
-          sed "s/__ASSET_VERSION__/${GITHUB_SHA}/g" index.html > _site/index.html
-          cp receiver-core.js receiver-trevuxa.js styles.css privacy-policy.html terms.html _site/
+          sed "s/__ASSET_VERSION__/${GITHUB_SHA}/g" candidate/index.html > _site/index.html
+          cp candidate/receiver-core.js candidate/receiver-trevuxa.js candidate/styles.css \
+            candidate/privacy-policy.html candidate/terms.html _site/
+      - name: Stage isolated feature receiver without changing production files
+        if: startsWith(github.ref, 'refs/tags/staging-')
+        run: |
+          mkdir -p _site
+          git -C production archive HEAD | tar -x -C _site
+
+          staging_dir="_site/staging/${GITHUB_SHA}"
+          mkdir -p "${staging_dir}"
+          sed "s/__ASSET_VERSION__/${GITHUB_SHA}/g" candidate/index.html > "${staging_dir}/index.html"
+          cp candidate/receiver-core.js candidate/receiver-trevuxa.js candidate/styles.css \
+            candidate/privacy-policy.html candidate/terms.html "${staging_dir}/"
+
+          cmp production/index.html _site/index.html
+          cmp production/receiver-trevuxa.js _site/receiver-trevuxa.js
+          test -f "${staging_dir}/receiver-core.js"
+          test -f "${staging_dir}/receiver-trevuxa.js"
       - name: Upload receiver
         uses: actions/upload-pages-artifact@v5
         with:

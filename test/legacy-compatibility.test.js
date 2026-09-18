@@ -52,14 +52,21 @@ test('production page cache-busts current assets and excludes legacy pipelines',
   assert.doesNotMatch(html, /receiver-v(?:17|21)\.js|mp4box|receiver\.js[?"']/);
 });
 
-test('Pages deploy is main-only and publishes an explicit production allowlist', function () {
+test('Pages keeps production isolated while publishing an explicitly tagged feature receiver', function () {
   var workflow = fs.readFileSync(
     path.join(projectRoot, '.github', 'workflows', 'pages.yml'),
     'utf8'
   );
 
+  assert.match(workflow, /tags: \[staging-\*\]/);
+  assert.match(workflow, /group: pages/);
   assert.match(workflow, /github\.ref == 'refs\/heads\/main'/);
-  assert.match(workflow, /cp receiver-core\.js receiver-trevuxa\.js styles\.css privacy-policy\.html terms\.html _site\//);
+  assert.match(workflow, /startsWith\(github\.ref, 'refs\/tags\/staging-'\)/);
+  assert.match(workflow, /ref: main\s+path: production/);
+  assert.match(workflow, /cp candidate\/receiver-core\.js candidate\/receiver-trevuxa\.js candidate\/styles\.css/);
+  assert.match(workflow, /git -C production archive HEAD \| tar -x -C _site/);
+  assert.match(workflow, /staging_dir="_site\/staging\/\$\{GITHUB_SHA\}"/);
+  assert.match(workflow, /cmp production\/index\.html _site\/index\.html/);
   assert.doesNotMatch(workflow, /cp\s+(?:-r|-R|--recursive)\s+\.\s+_site/);
   assert.doesNotMatch(workflow, /vendor-mp4box/);
 });

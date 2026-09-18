@@ -21,4 +21,4 @@ node --check receiver-trevuxa.js
 node --test test/*.test.js
 ```
 
-The Pages workflow tests both `main` and `feature/direct-cast-modes`, but deploys only an explicitly tested `main` commit. It stages an allowlist so historical receiver and MP4Box files are never published accidentally.
+The Pages workflow tests both `main` and `feature/direct-cast-modes`. A `main` push deploys only the production allowlist. Ordinary feature pushes only run tests. An explicit `staging-*` tag keeps an archived `main` tree byte-for-byte at the site root and adds that tested candidate below `/staging/<candidate-commit>/`. This gives the Cast Developer Console a commit-bound HTTPS receiver URL without changing the production Cast registration or merging feature code into `main`. The staging URL remains available until a later Pages deployment replaces it.
