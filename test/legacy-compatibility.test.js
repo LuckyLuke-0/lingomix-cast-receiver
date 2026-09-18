@@ -62,6 +62,7 @@ test('Pages keeps production isolated behind an explicit staging branch', functi
   assert.match(workflow, /group: pages/);
   assert.match(workflow, /github\.ref == 'refs\/heads\/main'/);
   assert.match(workflow, /startsWith\(github\.ref, 'refs\/heads\/staging\/'\)/);
+  assert.match(workflow, /'github-pages-staging' \|\| 'github-pages'/);
   assert.match(workflow, /ref: main\s+path: production/);
   assert.match(workflow, /cp candidate\/receiver-core\.js candidate\/receiver-trevuxa\.js candidate\/styles\.css/);
   assert.match(workflow, /git -C production archive HEAD \| tar -x -C _site/);
