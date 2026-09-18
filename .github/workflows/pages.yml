@@ -2,8 +2,7 @@ name: Deploy Cast Receiver to GitHub Pages
 
 on:
   push:
-    branches: [main, feature/direct-cast-modes]
-    tags: [staging-*]
+    branches: [main, feature/direct-cast-modes, staging/**]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -37,7 +36,7 @@ jobs:
     if: >-
       github.event_name != 'pull_request' &&
       (github.ref == 'refs/heads/main' ||
-      startsWith(github.ref, 'refs/tags/staging-'))
+      startsWith(github.ref, 'refs/heads/staging/'))
     needs: test
     permissions:
       contents: read
@@ -53,7 +52,7 @@ jobs:
         with:
           path: candidate
       - name: Checkout unchanged production baseline
-        if: startsWith(github.ref, 'refs/tags/staging-')
+        if: startsWith(github.ref, 'refs/heads/staging/')
         uses: actions/checkout@v7
         with:
           ref: main
@@ -71,7 +70,7 @@ jobs:
           cp candidate/receiver-core.js candidate/receiver-trevuxa.js candidate/styles.css \
             candidate/privacy-policy.html candidate/terms.html _site/
       - name: Stage isolated feature receiver without changing production files
-        if: startsWith(github.ref, 'refs/tags/staging-')
+        if: startsWith(github.ref, 'refs/heads/staging/')
         run: |
           mkdir -p _site
           git -C production archive HEAD | tar -x -C _site
