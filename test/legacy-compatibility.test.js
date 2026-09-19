@@ -58,16 +58,18 @@ test('Pages keeps production isolated behind an explicit staging branch', functi
     'utf8'
   );
 
-  assert.match(workflow, /branches: \[main, feature\/direct-cast-modes, staging\/\*\*\]/);
+  assert.match(workflow, /branches: \[main, feature\/direct-cast-modes, staging\/\*\*, acceptance\/\*\*\]/);
   assert.match(workflow, /group: pages/);
   assert.match(workflow, /github\.ref == 'refs\/heads\/main'/);
   assert.match(workflow, /startsWith\(github\.ref, 'refs\/heads\/staging\/'\)/);
-  assert.match(workflow, /'github-pages-staging' \|\| 'github-pages'/);
+  assert.match(workflow, /startsWith\(github\.ref, 'refs\/heads\/acceptance\/'\)/);
+  assert.match(workflow, /'github-pages' \|\| 'github-pages-staging'/);
   assert.match(workflow, /ref: main\s+path: production/);
   assert.match(workflow, /cp candidate\/receiver-core\.js candidate\/receiver-trevuxa\.js candidate\/styles\.css/);
   assert.match(workflow, /git -C production archive HEAD \| tar -x -C _site/);
   assert.match(workflow, /staging_dir="_site\/staging\/\$\{GITHUB_SHA\}"/);
   assert.match(workflow, /cmp production\/index\.html _site\/index\.html/);
+  assert.match(workflow, /Stage temporary all-device acceptance receiver/);
   assert.doesNotMatch(workflow, /cp\s+(?:-r|-R|--recursive)\s+\.\s+_site/);
   assert.doesNotMatch(workflow, /vendor-mp4box/);
 });

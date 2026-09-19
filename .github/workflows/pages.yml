@@ -2,7 +2,7 @@ name: Deploy Cast Receiver to GitHub Pages
 
 on:
   push:
-    branches: [main, feature/direct-cast-modes, staging/**]
+    branches: [main, feature/direct-cast-modes, staging/**, acceptance/**]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -36,14 +36,15 @@ jobs:
     if: >-
       github.event_name != 'pull_request' &&
       (github.ref == 'refs/heads/main' ||
-      startsWith(github.ref, 'refs/heads/staging/'))
+      startsWith(github.ref, 'refs/heads/staging/') ||
+      startsWith(github.ref, 'refs/heads/acceptance/'))
     needs: test
     permissions:
       contents: read
       pages: write
       id-token: write
     environment:
-      name: ${{ startsWith(github.ref, 'refs/heads/staging/') && 'github-pages-staging' || 'github-pages' }}
+      name: ${{ github.ref == 'refs/heads/main' && 'github-pages' || 'github-pages-staging' }}
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
@@ -85,6 +86,15 @@ jobs:
           cmp production/receiver-trevuxa.js _site/receiver-trevuxa.js
           test -f "${staging_dir}/receiver-core.js"
           test -f "${staging_dir}/receiver-trevuxa.js"
+      - name: Stage temporary all-device acceptance receiver
+        if: startsWith(github.ref, 'refs/heads/acceptance/')
+        run: |
+          mkdir -p _site
+          sed "s/__ASSET_VERSION__/${GITHUB_SHA}/g" candidate/index.html > _site/index.html
+          cp candidate/receiver-core.js candidate/receiver-trevuxa.js candidate/styles.css \
+            candidate/privacy-policy.html candidate/terms.html _site/
+          test -f _site/receiver-core.js
+          test -f _site/receiver-trevuxa.js
       - name: Upload receiver
         uses: actions/upload-pages-artifact@v5
         with:
